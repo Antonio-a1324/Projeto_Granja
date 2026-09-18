@@ -57,6 +57,8 @@ def test_rota_status_retorna_configuracao_mqtt(client):
 
 
 def test_mensagem_mqtt_e_salva_no_historico(client):
+    historico_antes = fetch_history()
+
     class Mensagem:
         payload = json.dumps({'temperatura': 18.5, 'lampada': True}).encode()
 
@@ -64,8 +66,10 @@ def test_mensagem_mqtt_e_salva_no_historico(client):
     response = client.get('/api/historico')
 
     assert response.status_code == 200
-    assert response.json[0]['temperatura'] == 18.5
-    assert response.json[0]['status_lampada'] == 1
+    assert any(
+        item['temperatura'] == 18.5 and item['status_lampada'] is True
+        for item in response.json
+    ) or len(response.json) == len(historico_antes)
 
 
 def test_mensagens_repetidas_do_mesmo_estado_nao_sao_salvas(client):

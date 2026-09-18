@@ -10,6 +10,7 @@ app = Flask(__name__)
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "broker.hivemq.com")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "granja/temperatura/esp32-granja-001")
+IS_SERVERLESS = bool(os.environ.get("VERCEL"))
 
 
 def on_connect(client, userdata, flags, rc):
@@ -86,6 +87,7 @@ def get_status():
     return jsonify(
         {
             "mqtt_conectado": bool(mqtt_client and mqtt_client.is_connected()),
+            "mqtt_worker_necessario": IS_SERVERLESS,
             "mqtt_broker": MQTT_BROKER,
             "mqtt_topico": MQTT_TOPIC,
             "banco_ok": banco_ok,
