@@ -1,5 +1,9 @@
+import json
+
 import pytest
-from app import app
+
+from app import app, on_message
+from database import fetch_history
 
 def avaliar_estado_lampada(temperatura):
     """Regra de negócio: liga a lâmpada (True) apenas se a temperatura for menor que 30 °C"""
@@ -38,6 +42,42 @@ def test_rota_historico_retorna_json(client):
     response = client.get('/api/historico')
     assert response.status_code in [200, 500]
     assert response.is_json
+
+
+def test_rota_status_retorna_configuracao_mqtt(client):
+    response = client.get('/api/status')
+
+    assert response.status_code == 200
+    assert response.is_json
+    assert response.json['mqtt_topico']
+    assert response.json['banco_ok'] is True
+
+
+def test_mensagem_mqtt_e_salva_no_historico(client):
+    class Mensagem:
+        payload = json.dumps({'temperatura': 18.5, 'lampada': True}).encode()
+
+    on_message(None, None, Mensagem())
+    response = client.get('/api/historico')
+
+    assert response.status_code == 200
+    assert response.json[0]['temperatura'] == 18.5
+    assert response.json[0]['status_lampada'] == 1
+
+
+def test_mensagens_repetidas_do_mesmo_estado_nao_sao_salvas(client):
+    historico_antes = fetch_history()
+    estado_atual = bool(historico_antes[0]['status_lampada']) if historico_antes else False
+    novo_estado = not estado_atual
+
+    class Mensagem:
+        payload = json.dumps({'temperatura': 19.0, 'lampada': novo_estado}).encode()
+
+    on_message(None, None, Mensagem())
+    on_message(None, None, Mensagem())
+
+    historico_depois = fetch_history()
+    assert len(historico_depois) == len(historico_antes) + 1
 
 
 # 4. TESTE DE EXCEÇÃO (Entrada Inválida)

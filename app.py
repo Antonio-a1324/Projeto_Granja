@@ -1,71 +1,11 @@
 import os
 import json
-import sqlite3
 
 from flask import Flask, render_template, jsonify
 import paho.mqtt.client as mqtt
-
-try:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-except Exception:  # pragma: no cover - fallback em ambiente sem pós-compilação
-    psycopg2 = None
-    RealDictCursor = None
+from database import fetch_history, get_db_connection, record_state_change
 
 app = Flask(__name__)
-
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///granja.db")
-
-
-def get_db_connection():
-    """Cria uma conexão compatível com Postgres ou SQLite."""
-    if DATABASE_URL.startswith("sqlite"):
-        conn = sqlite3.connect("granja.db")
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    if psycopg2 is None:
-        raise RuntimeError("psycopg2 não está disponível")
-
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-
-
-def init_db():
-    """Cria a tabela de leituras no banco local ou no Neon."""
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        if DATABASE_URL.startswith("sqlite"):
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS leituras (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    temperatura REAL NOT NULL,
-                    status_lampada INTEGER NOT NULL,
-                    data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                """
-            )
-        else:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS leituras (
-                    id SERIAL PRIMARY KEY,
-                    temperatura FLOAT NOT NULL,
-                    status_lampada BOOLEAN NOT NULL,
-                    data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                """
-            )
-
-        conn.commit()
-        cur.close()
-        conn.close()
-        print("[DB] Tabela 'leituras' verificada/criada.")
-    except Exception as e:
-        print(f"[DB ERROR] Falha ao inicializar o banco: {e}")
-
 
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "broker.hivemq.com")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
@@ -83,25 +23,17 @@ def on_message(client, userdata, msg):
         temp = payload.get("temperatura")
         lampada = payload.get("lampada")
 
-        if temp is not None and lampada is not None:
-            conn = get_db_connection()
-            cur = conn.cursor()
+        if temp is None or lampada is None:
+            print("[MQTT ERROR] Mensagem ignorada: campos obrigatórios ausentes.")
+            return
 
-            if DATABASE_URL.startswith("sqlite"):
-                cur.execute(
-                    "INSERT INTO leituras (temperatura, status_lampada) VALUES (?, ?);",
-                    (float(temp), 1 if lampada else 0),
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO leituras (temperatura, status_lampada) VALUES (%s, %s);",
-                    (temp, lampada),
-                )
-
-            conn.commit()
-            cur.close()
-            conn.close()
-            print(f"[MQTT -> DB] Leitura Salva: Temp={temp}°C | Lampada={lampada}")
+        temperatura = float(temp)
+        estado_lampada = bool(lampada)
+        mudou, minutos = record_state_change(temperatura, estado_lampada)
+        if mudou:
+            print(f"[MQTT -> DB] Evento salvo: Temp={temperatura}°C | Lampada={estado_lampada} | Minutos={minutos:.2f}")
+        else:
+            print("[MQTT] Estado sem mudança; leitura ignorada.")
     except Exception as e:
         print(f"[MQTT ERROR] Erro ao processar mensagem: {e}")
 
@@ -136,44 +68,30 @@ def home():
 def get_historico():
     """Retorna os dados cadastrados em formato JSON."""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        if DATABASE_URL.startswith("sqlite"):
-            cur.execute(
-                """
-                SELECT id, temperatura, status_lampada,
-                       strftime('%Y-%m-%d %H:%M:%S', data_hora) as data_hora
-                FROM leituras
-                ORDER BY id DESC
-                LIMIT 50;
-                """
-            )
-        else:
-            cur.execute(
-                """
-                SELECT id, temperatura, status_lampada,
-                       TO_CHAR(data_hora, 'YYYY-MM-DD HH24:MI:SS') as data_hora
-                FROM leituras
-                ORDER BY id DESC
-                LIMIT 50;
-                """
-            )
-
-        leituras = cur.fetchall()
-        if DATABASE_URL.startswith("sqlite"):
-            resultado = [dict(linha) for linha in leituras]
-        else:
-            resultado = [dict(linha) for linha in leituras]
-
-        cur.close()
-        conn.close()
-        return jsonify(resultado), 200
+        return jsonify(fetch_history()), 200
     except Exception as e:
         return jsonify({"erro": "Falha ao consultar banco de dados", "detalhe": str(e)}), 500
 
 
-init_db()
+@app.route("/api/status", methods=["GET"])
+def get_status():
+    """Informa o estado da integração Flask, MQTT e banco."""
+    banco_ok = True
+    try:
+        conn = get_db_connection()
+        conn.close()
+    except Exception:
+        banco_ok = False
+
+    return jsonify(
+        {
+            "mqtt_conectado": bool(mqtt_client and mqtt_client.is_connected()),
+            "mqtt_broker": MQTT_BROKER,
+            "mqtt_topico": MQTT_TOPIC,
+            "banco_ok": banco_ok,
+        }
+    )
+
 
 if __name__ == "__main__":
     start_mqtt()
