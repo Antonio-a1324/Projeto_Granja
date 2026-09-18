@@ -3,3 +3,4 @@ paho-mqtt==1.6.1
 psycopg2-binary==2.9.13
 pytest==8.0.2
 python-dotenv==1.0.1
+tzdata==2025.2

@@ -2,6 +2,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -16,6 +17,7 @@ load_dotenv()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///granja.db")
 SQLITE_DATABASE = DATABASE_URL.startswith("sqlite")
+BRAZIL_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
 
 def get_db_connection():
@@ -173,6 +175,15 @@ def _parse_datetime(value):
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
 
 
+def _format_brazil_time(value):
+    """Converte um timestamp UTC para Brasília e exibe somente HH:MM."""
+    if isinstance(value, str):
+        value = _parse_datetime(value)
+    elif value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(BRAZIL_TIMEZONE).strftime("%H:%M")
+
+
 def record_state_change(temperatura, lampada):
     """Registra somente uma transição e retorna (mudou, minutos_ligada)."""
     temperatura = float(temperatura)
@@ -242,7 +253,9 @@ def fetch_history(limit=50):
             if isinstance(value, Decimal):
                 normalized[key] = float(value)
             elif isinstance(value, datetime):
-                normalized[key] = value.isoformat()
+                normalized[key] = _format_brazil_time(value)
+            elif key == "data_hora":
+                normalized[key] = _format_brazil_time(value)
             else:
                 normalized[key] = value
         result.append(normalized)

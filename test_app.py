@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -42,6 +43,8 @@ def test_rota_historico_retorna_json(client):
     response = client.get('/api/historico')
     assert response.status_code in [200, 500]
     assert response.is_json
+    if response.status_code == 200 and response.json:
+        assert re.fullmatch(r"\d{2}:\d{2}", response.json[0]["data_hora"])
 
 
 def test_rota_status_retorna_configuracao_mqtt(client):
