@@ -175,10 +175,14 @@
 
     <script>
       async function carregarHistorico() {
-        const response = await fetch('/api/historico');
-        const dados = await response.json();
-
         const body = document.getElementById('historico-body');
+        try {
+          const response = await fetch('/api/historico');
+          if (!response.ok) {
+            throw new Error(`API indisponível (HTTP ${response.status}). Abra o site pelo Flask em http://127.0.0.1:5000`);
+          }
+
+          const dados = await response.json();
         if (!Array.isArray(dados) || dados.length === 0) {
           body.innerHTML = '<tr><td colspan="4">Nenhuma leitura registrada.</td></tr>';
           return;
@@ -205,6 +209,11 @@
             </tr>
           `;
         }).join('');
+          } catch (error) {
+            body.innerHTML = `<tr><td colspan="4">${error.message}</td></tr>`;
+            document.getElementById('temperatura').textContent = '-- °C';
+            document.getElementById('lampada-status').textContent = 'Sem conexão com o servidor';
+          }
       }
 
       carregarHistorico();
