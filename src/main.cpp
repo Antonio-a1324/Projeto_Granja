@@ -1,68 +1,125 @@
-// Este código é um exemplo de como usar o sensor DHT22 com um ESP32
-// para monitorar a temperatura e controlar uma lâmpada (ou outro dispositivo)
-// com base na temperatura lida. Ele também publica os dados de temperatura e o 
-// estado da lâmpada em um broker MQTT.
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include "DHT.h"
-// Definições de pinos e tipo do sensor DHT'
-#define DHTPIN 15
-#define DHTTYPE DHT22
-#define RELAY_PIN 26
 
-// Altere para os dados da sua rede Wi-Fi caso vá gravar em uma placa física
-const char* ssid = "WIFI-IOT"; 
-const char* password = "Ac5ce1ss0@IOT";
-const char* mqtt_server = "broker.hivemq.com";
-// Inicializa o cliente MQTT e o sensor DHT
+#if __has_include("config.h")
+#include "config.h"
+#endif
+
+#define DHTPIN 5
+#define DHTTYPE DHT11
+#define RELAY_PIN 26
+#define RELAY_ON HIGH
+#define RELAY_OFF LOW
+
+#ifndef WIFI_SSID
+#define WIFI_SSID "CONFIGURE_WIFI_SSID"
+#endif
+
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "CONFIGURE_WIFI_PASSWORD"
+#endif
+
+#ifndef MQTT_BROKER
+#define MQTT_BROKER "broker.hivemq.com"
+#endif
+
+#ifndef MQTT_PORT
+#define MQTT_PORT 1883
+#endif
+
+#ifndef MQTT_TOPIC
+#define MQTT_TOPIC "granja/temperatura/esp32-granja-001"
+#endif
+
+constexpr float TEMPERATURA_LIGA = 30.0;
+constexpr float TEMPERATURA_DESLIGA = 31.0;
+constexpr unsigned long INTERVALO_LEITURA_MS = 3000;
+
 WiFiClient espClient;
 PubSubClient client(espClient);
 DHT dht(DHTPIN, DHTTYPE);
-// Função para reconectar ao broker MQTT
-void reconnect() {
-  while (!client.connected()) {
-    if (client.connect("ESP32_Granja_Client")) {
-      Serial.println("MQTT Conectado!");
-    } else {
-      delay(2000);
-    }
+bool lampadaLigada = false;
+unsigned long ultimaLeitura = 0;
+
+void aplicarEstadoLampada(bool ligada) {
+  lampadaLigada = ligada;
+  digitalWrite(RELAY_PIN, ligada ? RELAY_ON : RELAY_OFF);
+}
+
+void conectarWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+
+  Serial.printf("Conectando ao Wi-Fi %s", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  unsigned long inicio = millis();
+
+  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000) {
+    delay(250);
+    Serial.print(".");
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\nWi-Fi conectado. IP: %s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.println("\nWi-Fi indisponível; nova tentativa em breve.");
   }
 }
-// Função de configuração inicial
+
+void reconnect() {
+  if (WiFi.status() != WL_CONNECTED || client.connected()) {
+    return;
+  }
+
+  String clientId = "ESP32-Granja-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+  if (client.connect(clientId.c_str())) {
+      Serial.println("MQTT Conectado!");
+  } else {
+    Serial.printf("Falha MQTT, estado=%d.\n", client.state());
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(RELAY_PIN, OUTPUT);
+  aplicarEstadoLampada(false);
   dht.begin();
-  // Conecta-se à rede Wi-Fi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi Conectado!");
-
-  client.setServer(mqtt_server, 1883);
+  client.setServer(MQTT_BROKER, MQTT_PORT);
+  conectarWiFi();
 }
-// Função principal do loop
+
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
+  conectarWiFi();
+  reconnect();
   client.loop();
 
-  float temp = dht.readTemperature();
-// Verifica se a leitura da temperatura foi bem-sucedida
-  if (!isnan(temp)) {
-    bool lampadaOn = temp < 30.0;
-    digitalWrite(RELAY_PIN, lampadaOn ? HIGH : LOW);
+  if (millis() - ultimaLeitura < INTERVALO_LEITURA_MS) {
+    delay(10);
+    return;
+  }
+  ultimaLeitura = millis();
 
-    String payload = "{\"temperatura\":" + String(temp) + ",\"lampada\":" + (lampadaOn ? "true" : "false") + "}";
-    client.publish("granja/temperatura", payload.c_str());
-
-    Serial.print("Temperatura: "); Serial.print(temp);
-    Serial.print(" °C | Lâmpada: "); Serial.println(lampadaOn ? "LIGADA" : "DESLIGADA");
+  float temperatura = dht.readTemperature();
+  if (isnan(temperatura)) {
+    Serial.println("Falha ao ler o DHT22; mantendo o último estado da lâmpada.");
+    return;
   }
 
-  delay(3000);
+  if (temperatura <= TEMPERATURA_LIGA) {
+    aplicarEstadoLampada(true);
+  } else if (temperatura >= TEMPERATURA_DESLIGA) {
+    aplicarEstadoLampada(false);
+  }
+
+  String payload = "{\"temperatura\":" + String(temperatura, 1) +
+                   ",\"lampada\":" + (lampadaLigada ? "true" : "false") + "}";
+  if (client.connected()) {
+    client.publish(MQTT_TOPIC, payload.c_str());
+  }
+
+  Serial.printf("Temperatura: %.1f C | Lampada: %s\n", temperatura,
+                lampadaLigada ? "LIGADA" : "DESLIGADA");
 }

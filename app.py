@@ -67,9 +67,9 @@ def init_db():
         print(f"[DB ERROR] Falha ao inicializar o banco: {e}")
 
 
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-MQTT_TOPIC = "granja/temperatura"
+MQTT_BROKER = os.environ.get("MQTT_BROKER", "broker.hivemq.com")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "granja/temperatura/esp32-granja-001")
 
 
 def on_connect(client, userdata, flags, rc):
