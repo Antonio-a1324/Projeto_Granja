@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Granja Inteligente</title>
+    <style>
+      :root {
+        --bg: #f4f7f1;
+        --card: #ffffff;
+        --primary: #3a8d4a;
+        --primary-dark: #2b6d38;
+        --text: #1f2a1f;
+        --muted: #647267;
+        --danger: #d9534f;
+        --success: #2e9d58;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: linear-gradient(135deg, #edf5eb, #dfeee0);
+        color: var(--text);
+      }
+
+      .container {
+        max-width: 960px;
+        margin: 40px auto;
+        padding: 20px;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+      }
+
+      .badge {
+        background: var(--primary);
+        color: white;
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-weight: bold;
+        letter-spacing: 0.04em;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 20px;
+        margin-bottom: 24px;
+      }
+
+      .card {
+        background: var(--card);
+        border-radius: 14px;
+        box-shadow: 0 6px 18px rgba(29, 62, 34, 0.08);
+        padding: 20px;
+      }
+
+      .label {
+        color: var(--muted);
+        margin-bottom: 8px;
+        font-size: 0.9rem;
+      }
+
+      .valor {
+        font-size: 2rem;
+        font-weight: bold;
+      }
+
+      .lampada {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: bold;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--danger);
+        box-shadow: 0 0 10px rgba(217, 83, 79, 0.4);
+      }
+
+      .dot.on {
+        background: var(--success);
+        box-shadow: 0 0 10px rgba(46, 157, 88, 0.6);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 6px 18px rgba(29, 62, 34, 0.08);
+      }
+
+      th, td {
+        padding: 14px 16px;
+        text-align: left;
+        border-bottom: 1px solid #edf0ee;
+      }
+
+      th {
+        background: #eef7ef;
+      }
+
+      .status {
+        font-weight: bold;
+      }
+
+      .status.true {
+        color: var(--success);
+      }
+
+      .status.false {
+        color: var(--danger);
+      }
+
+      @media (max-width: 600px) {
+        .header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Granja Inteligente</h1>
+        <div class="badge">Monitoramento</div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <div class="label">Temperatura atual</div>
+          <div class="valor" id="temperatura">-- °C</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Lâmpada</div>
+          <div class="lampada">
+            <span class="dot" id="lampada-dot"></span>
+            <span id="lampada-status">Desligada</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Histórico</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Temperatura</th>
+              <th>Lâmpada</th>
+              <th>Data/Hora</th>
+            </tr>
+          </thead>
+          <tbody id="historico-body">
+            <tr>
+              <td colspan="4">Carregando...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      async function carregarHistorico() {
+        const response = await fetch('/api/historico');
+        const dados = await response.json();
+
+        const body = document.getElementById('historico-body');
+        if (!Array.isArray(dados) || dados.length === 0) {
+          body.innerHTML = '<tr><td colspan="4">Nenhuma leitura registrada.</td></tr>';
+          return;
+        }
+
+        const ultima = dados[0];
+        document.getElementById('temperatura').textContent = `${Number(ultima.temperatura).toFixed(1)} °C`;
+
+        const ligado = Boolean(ultima.status_lampada === true || ultima.status_lampada === 1);
+        const dot = document.getElementById('lampada-dot');
+        const status = document.getElementById('lampada-status');
+
+        dot.classList.toggle('on', ligado);
+        status.textContent = ligado ? 'Ligada' : 'Desligada';
+
+        body.innerHTML = dados.map(item => {
+          const ligada = item.status_lampada === true || item.status_lampada === 1;
+          return `
+            <tr>
+              <td>${item.id}</td>
+              <td>${Number(item.temperatura).toFixed(1)} °C</td>
+              <td class="status ${ligada}">${ligada ? 'Ligada' : 'Desligada'}</td>
+              <td>${item.data_hora || '—'}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      carregarHistorico();
+      setInterval(carregarHistorico, 5000);
+    </script>
+  </body>
+</html>
