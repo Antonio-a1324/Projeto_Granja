@@ -42,6 +42,8 @@ PubSubClient client(espClient);
 DHT dht(DHTPIN, DHTTYPE);
 bool lampadaLigada = false;
 unsigned long ultimaLeitura = 0;
+unsigned long ultimaTentativaMqtt = 0;
+constexpr unsigned long INTERVALO_TENTATIVA_MQTT_MS = 5000;
 
 void aplicarEstadoLampada(bool ligada) {
   lampadaLigada = ligada;
@@ -70,13 +72,15 @@ void conectarWiFi() {
 }
 
 void reconnect() {
-  if (WiFi.status() != WL_CONNECTED || client.connected()) {
+  if (WiFi.status() != WL_CONNECTED || client.connected() ||
+      millis() - ultimaTentativaMqtt < INTERVALO_TENTATIVA_MQTT_MS) {
     return;
   }
+  ultimaTentativaMqtt = millis();
 
   String clientId = "ESP32-Granja-" + String((uint32_t)ESP.getEfuseMac(), HEX);
   if (client.connect(clientId.c_str())) {
-      Serial.println("MQTT Conectado!");
+    Serial.printf("MQTT conectado. Topico: %s\n", MQTT_TOPIC);
   } else {
     Serial.printf("Falha MQTT, estado=%d.\n", client.state());
   }
@@ -89,6 +93,7 @@ void setup() {
   dht.begin();
   client.setServer(MQTT_BROKER, MQTT_PORT);
   conectarWiFi();
+  ultimaLeitura = millis() - INTERVALO_LEITURA_MS;
 }
 
 void loop() {
@@ -104,7 +109,7 @@ void loop() {
 
   float temperatura = dht.readTemperature();
   if (isnan(temperatura)) {
-    Serial.println("Falha ao ler o DHT22; mantendo o último estado da lâmpada.");
+    Serial.println("Falha ao ler o DHT11; mantendo o ultimo estado da lampada.");
     return;
   }
 
@@ -117,7 +122,10 @@ void loop() {
   String payload = "{\"temperatura\":" + String(temperatura, 1) +
                    ",\"lampada\":" + (lampadaLigada ? "true" : "false") + "}";
   if (client.connected()) {
-    client.publish(MQTT_TOPIC, payload.c_str());
+    bool publicado = client.publish(MQTT_TOPIC, payload.c_str());
+    Serial.printf("MQTT publish: %s\n", publicado ? "OK" : "FALHOU");
+  } else {
+    Serial.println("MQTT indisponivel; leitura nao publicada.");
   }
 
   Serial.printf("Temperatura: %.1f C | Lampada: %s\n", temperatura,

@@ -22,6 +22,17 @@ C:/Users/49269418804/AppData/Local/Programs/Python/Python314/python.exe app.py
 
 Abra `http://127.0.0.1:5000`. O diagnostico MQTT fica em `http://127.0.0.1:5000/api/status`.
 
+Para enviar uma leitura por HTTP, use `POST /api/leituras` com:
+
+```json
+{
+	"temperatura": 25.4,
+	"lampada": true
+}
+```
+
+As consultas JSON disponiveis sao `GET /api/historico` e `GET /api/status`.
+
 ## Publicar na Vercel
 
 O projeto agora possui `api/index.py` e `vercel.json` para publicar o Flask como funcao serverless.
@@ -41,3 +52,15 @@ MQTT_TOPIC= granja/temperatura/esp32-granja-001
 5. Abra a URL gerada pela Vercel. O site ficara disponivel nela e `/api/historico` consultara o Neon.
 
 Importante: a Vercel nao e adequada para manter um cliente MQTT conectado continuamente. O `app.py` continua recebendo MQTT quando executado localmente, mas, para receber mensagens 24 horas na nuvem, mantenha um worker MQTT separado em um computador, Raspberry Pi ou servico com processo persistente. Esse worker deve usar `record_state_change` do `database.py` ou publicar os eventos em uma API protegida.
+
+## Checklist dos requisitos
+
+- Projeto Flask e rota de ingestao: `app.py`, `POST /api/leituras`.
+- Banco e tabelas: `database.py`, com `Temperatura`, `Tempo de uso` e `Ativacao`.
+- Conexao e persistencia: `get_db_connection`, `record_state_change` e `fetch_history`.
+- PyTest: `requirements.txt`.
+- Cobertura documentada: `TESTES.md`, com resultado esperado de cada teste.
+- Neon: `DATABASE_URL` e criacao/migracao das tabelas no PostgreSQL.
+- Vercel: `api/index.py` e `vercel.json`.
+- Testes no deploy: `scripts/testes.py`, chamado por `buildCommand` no `vercel.json`.
+- Consultas JSON: `GET /api/historico` e `GET /api/status`.

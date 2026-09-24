@@ -1,7 +1,7 @@
 import os
 import json
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 import paho.mqtt.client as mqtt
 from database import fetch_history, get_db_connection, record_state_change
 
@@ -21,22 +21,31 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
-        temp = payload.get("temperatura")
-        lampada = payload.get("lampada")
-
-        if temp is None or lampada is None:
-            print("[MQTT ERROR] Mensagem ignorada: campos obrigatórios ausentes.")
-            return
-
-        temperatura = float(temp)
-        estado_lampada = bool(lampada)
-        mudou, minutos = record_state_change(temperatura, estado_lampada)
-        if mudou:
-            print(f"[MQTT -> DB] Evento salvo: Temp={temperatura}°C | Lampada={estado_lampada} | Minutos={minutos:.2f}")
-        else:
-            print("[MQTT] Estado sem mudança; leitura ignorada.")
+        process_reading(payload, source="MQTT")
     except Exception as e:
         print(f"[MQTT ERROR] Erro ao processar mensagem: {e}")
+
+
+def process_reading(payload, source="HTTP"):
+    """Valida uma leitura e salva somente mudanças de estado."""
+    temp = payload.get("temperatura")
+    lampada = payload.get("lampada")
+
+    if temp is None or lampada is None:
+        raise ValueError("Os campos 'temperatura' e 'lampada' são obrigatórios.")
+
+    temperatura = float(temp)
+    if isinstance(lampada, str):
+        lampada = lampada.strip().lower() in ("true", "1", "ligada", "on")
+    estado_lampada = bool(lampada)
+    mudou, minutos = record_state_change(temperatura, estado_lampada)
+    return {
+        "salvo": mudou,
+        "temperatura": temperatura,
+        "lampada": estado_lampada,
+        "minutos_ligada": minutos,
+        "origem": source,
+    }
 
 
 mqtt_client = None
@@ -72,6 +81,21 @@ def get_historico():
         return jsonify(fetch_history()), 200
     except Exception as e:
         return jsonify({"erro": "Falha ao consultar banco de dados", "detalhe": str(e)}), 500
+
+
+@app.route("/api/leituras", methods=["POST"])
+def receber_leitura():
+    """Recebe uma leitura JSON de um dispositivo ou worker HTTP."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"erro": "Envie um JSON com temperatura e lampada."}), 400
+
+    try:
+        return jsonify(process_reading(payload)), 201
+    except (TypeError, ValueError) as error:
+        return jsonify({"erro": str(error)}), 400
+    except Exception as error:
+        return jsonify({"erro": "Falha ao salvar leitura", "detalhe": str(error)}), 500
 
 
 @app.route("/api/status", methods=["GET"])

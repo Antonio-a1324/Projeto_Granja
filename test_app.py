@@ -56,6 +56,25 @@ def test_rota_status_retorna_configuracao_mqtt(client):
     assert response.json['banco_ok'] is True
 
 
+def test_rota_leituras_recebe_json_do_dispositivo(client):
+    response = client.post(
+        '/api/leituras',
+        json={'temperatura': 17.25, 'lampada': 'true'},
+    )
+
+    assert response.status_code == 201
+    assert response.is_json
+    assert response.json['temperatura'] == 17.25
+    assert response.json['lampada'] is True
+
+
+def test_rota_leituras_rejeita_json_incompleto(client):
+    response = client.post('/api/leituras', json={'temperatura': 17.25})
+
+    assert response.status_code == 400
+    assert response.is_json
+
+
 def test_mensagem_mqtt_e_salva_no_historico(client):
     historico_antes = fetch_history()
 
