@@ -35,7 +35,7 @@
 
 constexpr float TEMPERATURA_LIGA = 30.0;
 constexpr float TEMPERATURA_DESLIGA = 31.0;
-constexpr unsigned long INTERVALO_LEITURA_MS = 60000;
+constexpr unsigned long INTERVALO_LEITURA_MS = 10000;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
